@@ -86,14 +86,24 @@ static ssize_t device_write(struct file *filp, const char *buffer, size_t length
 static ssize_t device_read(struct file *filp, char *buffer, size_t length, loff_t *offset)
 {
   ssize_t bytes_read = 0;
+  size_t i;
 
   if (message_length == 0)
   {
     return 0; // no messages
   }
 
-  // Copy message
-  bytes_read = simple_read_from_buffer(buffer, length, offset, BUFFER, message_length);
+  // Copy message byte per byte
+  for (i = 0; i < message_length; ++i)
+  {
+    // check if it's failing the copy
+    if (put_user(BUFFER[message_length - i - 1], buffer + i))
+    {
+      return -EFAULT;
+    }
+  }
+
+  bytes_read = message_length;
 
   message_length = 0;
   return bytes_read;
