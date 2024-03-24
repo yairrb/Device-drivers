@@ -11,70 +11,105 @@ Global variables are declared as static, so are global within the file.
 */
 
 static int major_number;     // major number so we can talk to the device
-static char buffer[BUF_LEN]; // buffer to storage data
+static char BUFFER[BUF_LEN]; // buffer to storage data
+static ssize_t message_length = 0;
+
+static ssize_t device_write(struct file *, const char *, size_t, loff_t *);
+static int device_open(struct inode *, struct file *);
+static int device_release(struct inode *, struct file *);
+static ssize_t device_read(struct file *, char *, size_t, loff_t *);
 
 /* file operations*/
-
 static struct file_operations fops = {
     .owner = THIS_MODULE,
-    .write = device_write};
+    .write = device_write,
+    .open = device_open,
+    .read = device_read,
+    .release = device_release};
 
 int init_module(void)
 { /* Constructor */
-    printk(KERN_INFO "YRUIZ : Driver registrado\n");
-    // get major number
-    major_number = register_chrdev(0, DEVICE_NAME, &fops);
-    if (major_number < 0)
-    {
-        printk(KERN_ALERT "registering char device failed with %d\n", major_number);
-        return major_number;
-    }
+  printk(KERN_INFO "YRUIZ : Driver registrado\n");
+  // get major number
+  major_number = register_chrdev(0, DEVICE_NAME, &fops);
+  if (major_number < 0)
+  {
+    printk(KERN_ALERT "registering char device failed with %d\n", major_number);
+    return major_number;
+  }
 
-    printk(KERN_INFO "I was assigned major number %d. To talk to\n", major_number);
-    printk(KERN_INFO "the driver, create a dev file with\n");
-    printk(KERN_INFO "'mknod /dev/%s c %d 0'.\n", DEVICE_NAME, major_number);
-    printk(KERN_INFO "Try various minor numbers. Try to cat and echo to\n");
-    printk(KERN_INFO "the device file.\n");
-    printk(KERN_INFO "Remove the device file and module when done.\n");
-    return 0;
+  printk(KERN_INFO "I was assigned major number %d. To talk to\n", major_number);
+  printk(KERN_INFO "the driver, create a dev file with\n");
+  printk(KERN_INFO "'mknod /dev/%s c %d 0'.\n", DEVICE_NAME, major_number);
+  printk(KERN_INFO "Try various minor numbers. Try to cat and echo to\n");
+  printk(KERN_INFO "the device file.\n");
+  printk(KERN_INFO "Remove the device file and module when done.\n");
+  return 0;
 }
 
 void cleanup_module(void)
-{ /* Destructor */
-    // Desregistrar el char device
-    unregister_chrdev(major_number, DEVICE_NAME);
-    printk(KERN_INFO "Char device has been unregistered\n");
+{
+  // Desregistrar el char device
+  unregister_chrdev(major_number, DEVICE_NAME);
+  printk(KERN_INFO "Char device has been unregistered\n");
 }
 
 // write function
-static ssize_t device_write(struct file *filp, const char *user_buffer, size_t length, loff_t *offset)
+static ssize_t device_write(struct file *filp, const char *buffer, size_t length, loff_t *offset)
 {
-    ssize_t bytes_written = 0;
+  ssize_t bytes_written = 0;
 
-    if (*offset >= BUF_LEN)
-    {
-        return -ENOSPC; // not enough space
-    }
+  if (length > BUF_LEN)
+  {
+    return -ENOSPC; // not enough space
+  }
 
-    // check buffer space so I can avoid overflow
-    ssize_t bytes_to_write = min(length, (size_t)(BUF_LEN - *offset));
+  // check buffer space so I can avoid overflow
+  ssize_t bytes_to_write = min(length, (size_t)(BUF_LEN - *offset));
 
-    // copy data to kernel
-    if (copy_from_user(buffer + *offset, user_buffer, bytes_to_write))
-    {
-        return -EFAULT; // Error de copia
-    }
+  // Copy data to kernel
+  if (copy_from_user(BUFFER, buffer, length))
+  {
+    return -EFAULT; // fail on copying from user space
+  }
 
-    // Update offset
-    *offset += bytes_to_write;
+  BUFFER[length] = '\0'; // Null
+  message_length = length;
 
-    // update bytes to write
-    bytes_written = bytes_to_write;
+  // Print data to the kernel
+  printk(KERN_INFO "YRUIZ: Mensaje recibido: %s\n", BUFFER);
+  bytes_written = length;
+  return bytes_written;
+}
 
-    // Print data to the kernel
-    printk(KERN_INFO "YRUIZ: Mensaje recibido: %.*s\n", bytes_written, buffer);
+// device read function
+static ssize_t device_read(struct file *filp, char *buffer, size_t length, loff_t *offset)
+{
+  ssize_t bytes_read = 0;
 
-    return bytes_written;
+  if (message_length == 0)
+  {
+    return 0; // no messages
+  }
+
+  // Copy message
+  bytes_read = simple_read_from_buffer(buffer, length, offset, BUFFER, message_length);
+
+  message_length = 0;
+  return bytes_read;
+}
+
+static int device_open(struct inode *inode, struct file *file)
+{
+  // things that I may need on open
+  printk(KERN_INFO "YRUIZ: Dispositivo abierto\n");
+  return 0;
+}
+static int device_release(struct inode *inode, struct file *file)
+{
+  // release operations
+  printk(KERN_INFO "YRUIZ: Dispositivo cerrado\n");
+  return 0;
 }
 
 MODULE_LICENSE("GPL");
